@@ -30,7 +30,7 @@ export class Grid {
   }
 
   // A* pathfinding from start to a specific target
-  findPath(startX: number, startY: number, targetX: number, targetY: number): Position[] | null {
+  findPath(startX: number, startY: number, targetX: number, targetY: number, ignoreTowers: boolean = false): Position[] | null {
     const start = { x: startX, y: startY };
 
     const openSet = [start];
@@ -72,7 +72,7 @@ export class Grid {
 
       for (const neighbor of neighbors) {
         if (!this.isValidPosition(neighbor.x, neighbor.y)) continue;
-        if (this.cells[neighbor.y][neighbor.x] !== 0 && !(neighbor.x === targetX && neighbor.y === targetY)) continue; // Blocked
+        if (!ignoreTowers && this.cells[neighbor.y][neighbor.x] !== 0 && !(neighbor.x === targetX && neighbor.y === targetY)) continue; // Blocked
 
         const tentative_gScore = (gScore.get(`${current.x},${current.y}`) || Infinity) + 1;
         const neighborKey = `${neighbor.x},${neighbor.y}`;

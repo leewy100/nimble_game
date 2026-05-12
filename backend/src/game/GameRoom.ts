@@ -37,7 +37,7 @@ export class GameRoom {
 
   public cloneDamage: number = 5;
   public cloneMaxHealth: number = 20;
-  public cloneFireRate: number = 30;
+  public cloneFireRate: number = 60;
   public insurancePolicyCost: number = 100;
   public cloneUpgrades: number = 0;
 
@@ -59,10 +59,10 @@ export class GameRoom {
 
     if (isJoining) {
       const side = Math.floor(Math.random() * 4);
-      if (side === 0) { x = Math.random() * this.grid.width; y = 0; }
-      else if (side === 1) { x = this.grid.width; y = Math.random() * this.grid.height; }
-      else if (side === 2) { x = Math.random() * this.grid.width; y = this.grid.height; }
-      else { x = 0; y = Math.random() * this.grid.height; }
+      if (side === 0) { x = Math.random() * (this.grid.width - 1) + 0.5; y = 0.5; }
+      else if (side === 1) { x = this.grid.width - 0.5; y = Math.random() * (this.grid.height - 1) + 0.5; }
+      else if (side === 2) { x = Math.random() * (this.grid.width - 1) + 0.5; y = this.grid.height - 0.5; }
+      else { x = 0.5; y = Math.random() * (this.grid.height - 1) + 0.5; }
     } else {
       x += (Math.random() - 0.5) * 2;
       y += (Math.random() - 0.5) * 2;
@@ -176,20 +176,63 @@ export class GameRoom {
   }
 
   assignTargetTower(enemy: Enemy) {
-    let closestTowerId: string | null = null;
-    let minDistance = Infinity;
-    for (const [id, tower] of this.towers.entries()) {
-      const dist = Math.abs(tower.x - enemy.x) + Math.abs(tower.y - enemy.y);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestTowerId = id;
-      }
-    }
-    enemy.targetTowerId = closestTowerId;
-    if (closestTowerId) {
-      const tower = this.towers.get(closestTowerId)!;
-      const path = this.grid.findPath(Math.floor(enemy.x), Math.floor(enemy.y), tower.x, tower.y);
-      enemy.path = path || [];
+    if (enemy.type === EnemyType.BRUTE) {
+       // Brutes target closest tower
+       let closestTowerId: string | null = null;
+       let minDistance = Infinity;
+       for (const [id, tower] of this.towers.entries()) {
+         const dist = Math.abs(tower.x - enemy.x) + Math.abs(tower.y - enemy.y);
+         if (dist < minDistance) {
+           minDistance = dist;
+           closestTowerId = id;
+         }
+       }
+       enemy.targetTowerId = closestTowerId;
+       if (closestTowerId) {
+         const tower = this.towers.get(closestTowerId)!;
+         const path = this.grid.findPath(Math.floor(enemy.x), Math.floor(enemy.y), tower.x, tower.y, true);
+         enemy.path = path || [];
+       }
+    } else {
+       // Standard enemies try to path to portal ignoring towers to find which tower is blocking them
+       const pathIgnoringTowers = this.grid.findPath(Math.floor(enemy.x), Math.floor(enemy.y), this.portalX, this.portalY, true);
+       if (pathIgnoringTowers && pathIgnoringTowers.length > 0) {
+          // Find the first tower in this path
+          let blockingTowerId: string | null = null;
+          let blockingPath: Position[] = [];
+          for (const pos of pathIgnoringTowers) {
+             blockingPath.push(pos);
+             for (const [id, tower] of this.towers.entries()) {
+                if (tower.x === pos.x && tower.y === pos.y) {
+                   blockingTowerId = id;
+                   break;
+                }
+             }
+             if (blockingTowerId) break;
+          }
+
+          if (blockingTowerId) {
+             enemy.targetTowerId = blockingTowerId;
+             enemy.path = blockingPath;
+          } else {
+             // Fallback to nearest tower if no tower is in the direct path somehow
+             let closestTowerId: string | null = null;
+             let minDistance = Infinity;
+             for (const [id, tower] of this.towers.entries()) {
+               const dist = Math.abs(tower.x - enemy.x) + Math.abs(tower.y - enemy.y);
+               if (dist < minDistance) {
+                 minDistance = dist;
+                 closestTowerId = id;
+               }
+             }
+             enemy.targetTowerId = closestTowerId;
+             if (closestTowerId) {
+               const tower = this.towers.get(closestTowerId)!;
+               const path = this.grid.findPath(Math.floor(enemy.x), Math.floor(enemy.y), tower.x, tower.y, true);
+               enemy.path = path || [];
+             }
+          }
+       }
     }
   }
 
@@ -460,7 +503,7 @@ export class GameRoom {
           }
         }
       } else {
-        let nearestEnemy: Enemy | null = null; let minDist = 4;
+        let nearestEnemy: Enemy | null = null; let minDist = 6;
         for (const enemy of this.enemies) {
           const dist = Math.sqrt(Math.pow(enemy.x - sci.x, 2) + Math.pow(enemy.y - sci.y, 2));
           if (dist < minDist) { minDist = dist; nearestEnemy = enemy; }
@@ -469,8 +512,10 @@ export class GameRoom {
           // Flee direct
           const dx = sci.x - nearestEnemy.x; const dy = sci.y - nearestEnemy.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          let tx = sci.x + (dx / dist) * sci.speed;
-          let ty = sci.y + (dy / dist) * sci.speed;
+          // Increase speed when fleeing
+          const fleeSpeed = sci.speed * 1.5;
+          let tx = sci.x + (dx / dist) * fleeSpeed;
+          let ty = sci.y + (dy / dist) * fleeSpeed;
           if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
           sci.path = [];
         } else {
@@ -497,6 +542,23 @@ export class GameRoom {
              }
           }
         }
+      }
+
+      // Separation from other scientists
+      let sepX = 0; let sepY = 0; let sepCount = 0;
+      for (const other of this.scientists) {
+         if (sci.id !== other.id) {
+            const dx = sci.x - other.x; const dy = sci.y - other.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 0 && dist < 0.6) {
+               sepX += dx / dist; sepY += dy / dist; sepCount++;
+            }
+         }
+      }
+      if (sepCount > 0) {
+         const moveX = sci.x + (sepX / sepCount) * (sci.speed * 0.5);
+         const moveY = sci.y + (sepY / sepCount) * (sci.speed * 0.5);
+         if (this.canMove(moveX, moveY)) { sci.x = moveX; sci.y = moveY; }
       }
 
       sci.x = Math.max(0, Math.min(this.grid.width, sci.x)); sci.y = Math.max(0, Math.min(this.grid.height, sci.y));
@@ -584,10 +646,10 @@ export class GameRoom {
 
       // Shooting logic (Only if not manning a tower, manned towers shoot for them)
       if (!clone.manningTowerId && this.tickCount - clone.lastFired >= this.cloneFireRate) {
-        let target: Enemy | null = null; let minDist = 4;
+        let target: Enemy | null = null; let minDist = 3; // Reduced targeting range
         for (const enemy of this.enemies) {
           const edist = Math.sqrt(Math.pow(clone.x - enemy.x, 2) + Math.pow(clone.y - enemy.y, 2));
-          if (edist <= 4 && edist < minDist) { minDist = edist; target = enemy; }
+          if (edist <= 3 && edist < minDist) { minDist = edist; target = enemy; }
         }
         if (target) {
           this.projectiles.push({
@@ -596,7 +658,7 @@ export class GameRoom {
           });
           clone.lastFired = this.tickCount;
           clone.isAttacking = true;
-          clone.attackTimer = 15;
+          clone.attackTimer = 10; // Reduced pause duration so they patrol more
           // Set facing direction towards target for attack animation
           clone.vx = target.x - clone.x;
           clone.vy = target.y - clone.y;
