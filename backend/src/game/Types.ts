@@ -7,8 +7,11 @@ export enum EnemyType {
 }
 
 export enum TowerType {
-  SCIENTIST = 'SCIENTIST',
-  REINFORCEMENT = 'REINFORCEMENT'
+  DEBRIS = 'DEBRIS',
+  BLOCKADE = 'BLOCKADE',
+  HEAVY_BLOCKADE = 'HEAVY_BLOCKADE',
+  REINFORCED_BLOCKADE = 'REINFORCED_BLOCKADE',
+  GUN_PLACEMENT = 'GUN_PLACEMENT'
 }
 
 export interface Enemy {
@@ -24,7 +27,8 @@ export interface Enemy {
   targetTowerId: string | null;
   vx: number;
   vy: number;
-  isAttacking: boolean; attackTimer: number;
+  isAttacking: boolean;
+  attackTimer: number;
 }
 
 export interface Tower {
@@ -38,6 +42,7 @@ export interface Tower {
   range: number;
   fireRate: number;
   lastFired: number;
+  mannedByCloneId: string | null;
 }
 
 export interface Projectile {
@@ -62,7 +67,9 @@ export interface ScientistNPC {
   isJoining: boolean;
   vx: number;
   vy: number;
-  isAttacking: boolean; attackTimer: number;
+  isAttacking: boolean;
+  attackTimer: number;
+  path: Position[];
 }
 
 export interface Clone {
@@ -77,5 +84,8 @@ export interface Clone {
   lastFired: number;
   vx: number;
   vy: number;
-  isAttacking: boolean; attackTimer: number;
+  isAttacking: boolean;
+  attackTimer: number;
+  path: Position[];
+  manningTowerId: string | null;
 }

@@ -6,7 +6,7 @@ const SPRITE_SIZE = 32;
 export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
   const ctx = canvas.getContext('2d')!;
   let gameState: any = null;
-  let selectedTowerType: string = 'SCIENTIST';
+  let selectedTowerType: string = 'DEBRIS';
   let selectedTowerId: string | null = null;
   let animationTime = 0;
 
@@ -17,9 +17,14 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     gameState = state;
     updateUI(state);
 
-    if (selectedTowerId && !gameState.towers.find((t: any) => t.id === selectedTowerId)) {
-       selectedTowerId = null;
-       document.getElementById('upgradePanel')!.style.display = 'none';
+    if (selectedTowerId) {
+      const selectedTower = gameState.towers.find((t: any) => t.id === selectedTowerId);
+      if (!selectedTower) {
+         selectedTowerId = null;
+         document.getElementById('upgradePanel')!.style.display = 'none';
+      } else {
+         updateUpgradePanel(selectedTower);
+      }
     }
   });
 
@@ -38,6 +43,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       if (clickedTower) {
         selectedTowerId = clickedTower.id;
         document.getElementById('upgradePanel')!.style.display = 'block';
+        updateUpgradePanel(clickedTower);
       } else {
         selectedTowerId = null;
         document.getElementById('upgradePanel')!.style.display = 'none';
@@ -58,15 +64,35 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     }
   };
 
-  (window as any).upgradeTower = (stat: string) => {
+  (window as any).upgradeTower = () => {
     if (selectedTowerId) {
-       socket.emit('upgrade_tower', { towerId: selectedTowerId, stat });
+       socket.emit('upgrade_tower', { towerId: selectedTowerId });
     }
   };
 
   (window as any).upgradeClones = () => {
     socket.emit('upgrade_clones');
   };
+
+  function updateUpgradePanel(tower: any) {
+    const textObj = document.getElementById('upgradeText');
+    if (!textObj) return;
+
+    if (tower.type === 'DEBRIS') {
+      textObj.innerText = 'Upgrade to Blockade ($100)';
+    } else if (tower.type === 'BLOCKADE') {
+      textObj.innerText = 'Upgrade to Heavy Blockade ($200)';
+    } else if (tower.type === 'HEAVY_BLOCKADE') {
+      textObj.innerText = 'Upgrade to Reinforced Blockade ($400)';
+    } else if (tower.type === 'REINFORCED_BLOCKADE') {
+      textObj.innerText = 'Upgrade to Gun Placement (Needs Clone, $200)';
+    } else if (tower.type === 'GUN_PLACEMENT') {
+      textObj.innerText = 'Max Level Reached';
+      document.querySelector('.upgrade-btn')!.setAttribute('style', 'display: none;');
+      return;
+    }
+    document.querySelector('.upgrade-btn')!.setAttribute('style', 'display: inline-block;');
+  }
 
   function updateUI(state: any) {
     const bankDisplay = document.getElementById('bankDisplay');
@@ -81,14 +107,12 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
   }
 
   function getDirectionRowOffset(vx: number, vy: number): number {
-    // 0: North, 1: East, 2: South, 3: West
     if (Math.abs(vx) > Math.abs(vy)) {
-      return vx > 0 ? 1 : 3; // East : West
+      return vx > 0 ? 1 : 3;
     } else {
-      return vy > 0 ? 2 : 0; // South : North
+      return vy > 0 ? 2 : 0;
     }
   }
-
 
   function drawSprite(ctx: CanvasRenderingContext2D, baseRow: number, entity: any, scale: number = 1, entityType: string = 'CLONE') {
     if (!spriteSheet.complete || spriteSheet.width === 0) return false;
@@ -163,7 +187,14 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     // Draw Towers
     if (gameState.towers) {
       for (const tower of gameState.towers) {
-        ctx.fillStyle = tower.type === 'SCIENTIST' ? '#3498db' : '#95a5a6';
+
+        let color = '#95a5a6'; // Debris
+        if (tower.type === 'BLOCKADE') color = '#7f8c8d';
+        if (tower.type === 'HEAVY_BLOCKADE') color = '#34495e';
+        if (tower.type === 'REINFORCED_BLOCKADE') color = '#2c3e50';
+        if (tower.type === 'GUN_PLACEMENT') color = '#2980b9';
+
+        ctx.fillStyle = color;
         ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
 
         if (selectedTowerId === tower.id) {
@@ -209,15 +240,19 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       for (const clone of gameState.clones) {
         const cx = clone.x * TILE_SIZE;
         const cy = clone.y * TILE_SIZE;
+
+        // Hide clone if manning tower (we could draw it on top, but it's simpler to just draw it since it shares coords)
         if (!drawSprite(ctx, 0, clone, 0.8, 'CLONE')) {
            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'yellow'; ctx.fill(); ctx.closePath();
         }
 
-        const hpPercent = clone.health / clone.maxHealth;
-        ctx.fillStyle = 'red';
-        ctx.fillRect(cx - 10, cy - 15, 20, 3);
-        ctx.fillStyle = 'green';
-        ctx.fillRect(cx - 10, cy - 15, 20 * hpPercent, 3);
+        if (!clone.manningTowerId) {
+          const hpPercent = clone.health / clone.maxHealth;
+          ctx.fillStyle = 'red';
+          ctx.fillRect(cx - 10, cy - 15, 20, 3);
+          ctx.fillStyle = 'green';
+          ctx.fillRect(cx - 10, cy - 15, 20 * hpPercent, 3);
+        }
       }
     }
 

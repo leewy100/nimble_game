@@ -67,11 +67,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('upgrade_tower', (data: { towerId: string, stat: 'damage'|'speed'|'range'|'armor' }) => {
+  // Updated to just take towerId, since stat is no longer used for linear upgrades
+  socket.on('upgrade_tower', (data: { towerId: string }) => {
     if (currentRoomId) {
       const room = roomManager.getRoom(currentRoomId);
       if (room) {
-        room.upgradeTower(data.towerId, data.stat);
+        room.upgradeTower(data.towerId, 'NEXT_TIER');
       }
     }
   });

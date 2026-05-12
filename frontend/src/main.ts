@@ -75,17 +75,13 @@ function renderGameRoom() {
 
       <div style="width: 800px; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
         <div style="display: flex; gap: 10px;">
-          <button id="btn-SCIENTIST" class="tower-btn active" onclick="selectTowerType('SCIENTIST')">Scientist ($30)</button>
-          <button id="btn-REINFORCEMENT" class="tower-btn" onclick="selectTowerType('REINFORCEMENT')">Blockade ($50)</button>
+          <button id="btn-DEBRIS" class="tower-btn active" onclick="selectTowerType('DEBRIS')">Debris ($50)</button>
           <button id="btn-SELECT" class="tower-btn" onclick="selectTowerType('SELECT')">Select (Upgrade)</button>
         </div>
 
         <div id="upgradePanel" style="display: none; background: #222; padding: 10px; border: 1px solid #555;">
-          <span style="font-size: 14px; margin-right: 10px;">Tower Upgrades ($40):</span>
-          <button class="upgrade-btn" onclick="upgradeTower('damage')">+Dmg</button>
-          <button class="upgrade-btn" onclick="upgradeTower('speed')">+Speed</button>
-          <button class="upgrade-btn" onclick="upgradeTower('range')">+Range</button>
-          <button class="upgrade-btn" onclick="upgradeTower('armor')">+Armor</button>
+          <span id="upgradeText" style="font-size: 14px; margin-right: 10px;">Upgrade:</span>
+          <button class="upgrade-btn" onclick="upgradeTower()">Upgrade</button>
         </div>
 
         <div>

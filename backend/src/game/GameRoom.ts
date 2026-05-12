@@ -70,7 +70,7 @@ export class GameRoom {
 
     return {
       id: randomUUID(), x, y, health: 10, maxHealth: 10, speed: 0.03,
-      phrase: null, phraseTimer: 0, isJoining, vx: 0, vy: 0, isAttacking: false, attackTimer: 0
+      phrase: null, phraseTimer: 0, isJoining, vx: 0, vy: 0, isAttacking: false, attackTimer: 0, path: []
     };
   }
 
@@ -78,11 +78,13 @@ export class GameRoom {
   removePlayer(playerId: string) { this.players.delete(playerId); }
   isEmpty(): boolean { return this.players.size === 0; }
 
+
   placeTower(playerId: string, gridX: number, gridY: number, type: TowerType): boolean {
     if (this.isGameOver) return false;
     if (gridX === this.portalX && gridY === this.portalY) return false;
 
-    const cost = type === TowerType.SCIENTIST ? 30 : 50;
+    let cost = 50;
+    if (type !== TowerType.DEBRIS) return false; // Players can only build Debris initially
     if (this.bank < cost) return false;
 
     if (this.grid.placeTower(gridX, gridY)) {
@@ -91,11 +93,10 @@ export class GameRoom {
       const tower: Tower = {
         id: towerId, type,
         x: gridX, y: gridY,
-        health: type === TowerType.REINFORCEMENT ? 500 : 50,
-        maxHealth: type === TowerType.REINFORCEMENT ? 500 : 50,
-        damage: type === TowerType.SCIENTIST ? 5 : 0,
-        range: type === TowerType.SCIENTIST ? 2.5 : 0,
-        fireRate: 45, lastFired: 0
+        health: 50, maxHealth: 50,
+        damage: 0, range: 0,
+        fireRate: 0, lastFired: 0,
+        mannedByCloneId: null
       };
       this.towers.set(towerId, tower);
       this.recalculateEnemyPaths();
@@ -104,22 +105,40 @@ export class GameRoom {
     return false;
   }
 
-  upgradeTower(towerId: string, stat: 'damage' | 'speed' | 'range' | 'armor'): boolean {
+  upgradeTower(towerId: string, stat: string): boolean {
     if (this.isGameOver) return false;
     const tower = this.towers.get(towerId);
     if (!tower) return false;
 
-    const cost = 40;
-    if (this.bank < cost) return false;
+    if (tower.type === TowerType.DEBRIS && this.bank >= 100) {
+       this.bank -= 100;
+       tower.type = TowerType.BLOCKADE;
+       tower.maxHealth = 200; tower.health = 200;
+       return true;
+    } else if (tower.type === TowerType.BLOCKADE && this.bank >= 200) {
+       this.bank -= 200;
+       tower.type = TowerType.HEAVY_BLOCKADE;
+       tower.maxHealth = 500; tower.health = 500;
+       return true;
+    } else if (tower.type === TowerType.HEAVY_BLOCKADE && this.bank >= 400) {
+       this.bank -= 400;
+       tower.type = TowerType.REINFORCED_BLOCKADE;
+       tower.maxHealth = 1000; tower.health = 1000;
+       return true;
+    } else if (tower.type === TowerType.REINFORCED_BLOCKADE && this.bank >= 200) {
+       // Search for a free clone
+       let freeClone = this.clones.find(c => c.manningTowerId === null);
+       if (!freeClone) return false; // Cannot build gun without a clone
 
-    this.bank -= cost;
-    switch (stat) {
-      case 'damage': tower.damage += 5; break;
-      case 'speed': tower.fireRate = Math.max(10, tower.fireRate - 10); break;
-      case 'range': tower.range += 1; break;
-      case 'armor': tower.maxHealth += 100; tower.health += 100; break;
+       this.bank -= 200;
+       tower.type = TowerType.GUN_PLACEMENT;
+       tower.maxHealth = 1500; tower.health = 1500;
+
+       freeClone.manningTowerId = tower.id;
+       tower.mannedByCloneId = freeClone.id;
+       return true;
     }
-    return true;
+    return false;
   }
 
   upgradeClones(): boolean {
@@ -232,7 +251,7 @@ export class GameRoom {
          targetX: this.portalX + 0.5,
          targetY: this.portalY + 0.5,
          lastFired: 0,
-         vx: 0, vy: 0, isAttacking: false, attackTimer: 0
+         vx: 0, vy: 0, isAttacking: false, attackTimer: 0, path: [], manningTowerId: null
        });
     }
 
@@ -309,11 +328,19 @@ export class GameRoom {
             if (this.tickCount % 60 === 0) {
                enemy.isAttacking = true;
                enemy.attackTimer = 15; // Hold animation for 15 ticks (1/4 second)
-               targetTower.health -= (enemy.type === EnemyType.BRUTE ? 25 : 5);
+               targetTower.health -= (enemy.type === EnemyType.BRUTE ? 100 : 5);
+
 
 
                if (targetTower.health <= 0) {
+                 if (targetTower.mannedByCloneId) {
+                    const cloneIndex = this.clones.findIndex(c => c.id === targetTower.mannedByCloneId);
+                    if (cloneIndex !== -1) {
+                       this.clones.splice(cloneIndex, 1);
+                    }
+                 }
                  this.towers.delete(enemy.targetTowerId);
+
                  this.grid.removeTower(targetTower.x, targetTower.y);
                  this.recalculateEnemyPaths();
                }
@@ -347,18 +374,18 @@ export class GameRoom {
 
   updateTowers() {
     for (const tower of this.towers.values()) {
-      if (tower.type !== TowerType.SCIENTIST) continue;
+      if (tower.type !== TowerType.GUN_PLACEMENT || !tower.mannedByCloneId) continue;
 
-      if (this.tickCount - tower.lastFired >= tower.fireRate) {
-        let target: Enemy | null = null; let minDist = tower.range;
+      if (this.tickCount - tower.lastFired >= this.cloneFireRate) {
+        let target: Enemy | null = null; let minDist = 6;
         for (const enemy of this.enemies) {
           const dist = Math.sqrt(Math.pow((tower.x + 0.5) - enemy.x, 2) + Math.pow((tower.y + 0.5) - enemy.y, 2));
-          if (dist <= tower.range && dist < minDist) { minDist = dist; target = enemy; }
+          if (dist <= 6 && dist < minDist) { minDist = dist; target = enemy; }
         }
         if (target) {
           this.projectiles.push({
             id: randomUUID(), x: tower.x + 0.5, y: tower.y + 0.5,
-            targetEnemyId: target.id, damage: tower.damage, speed: 0.2, isEnemy: false
+            targetEnemyId: target.id, damage: this.cloneDamage * 2, speed: 0.2, isEnemy: false
           });
           tower.lastFired = this.tickCount;
         }
@@ -398,6 +425,7 @@ export class GameRoom {
     return this.grid.cells[gridY][gridX] === 0;
   }
 
+
   updateAI() {
     // Update Scientists
     for (let i = this.scientists.length - 1; i >= 0; i--) {
@@ -408,12 +436,28 @@ export class GameRoom {
         sci.phraseTimer = 180;
       } else sci.phrase = null;
 
+      let prevX = sci.x;
+      let prevY = sci.y;
+
       if (sci.isJoining) {
-        const dx = (this.portalX + 0.5) - sci.x; const dy = (this.portalY + 0.5) - sci.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1) sci.isJoining = false;
-        else {
-          sci.vx = (dx / dist) * sci.speed; sci.vy = (dy / dist) * sci.speed;
+        const distToPortal = Math.sqrt(Math.pow((this.portalX + 0.5) - sci.x, 2) + Math.pow((this.portalY + 0.5) - sci.y, 2));
+        if (distToPortal < 1) {
+          sci.isJoining = false;
+        } else {
+          // A* pathfinding to portal
+          if (!sci.path || sci.path.length === 0 || Math.random() < 0.05) {
+             const path = this.grid.findPath(Math.floor(sci.x), Math.floor(sci.y), this.portalX, this.portalY);
+             sci.path = path || [];
+          }
+
+          if (sci.path && sci.path.length > 0) {
+            const nextTarget = sci.path[0];
+            const targetX = nextTarget.x + 0.5; const targetY = nextTarget.y + 0.5;
+            const pdx = targetX - sci.x; const pdy = targetY - sci.y;
+            const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pdist <= sci.speed) { sci.x = targetX; sci.y = targetY; sci.path.shift(); }
+            else { sci.x += (pdx / pdist) * sci.speed; sci.y += (pdy / pdist) * sci.speed; }
+          }
         }
       } else {
         let nearestEnemy: Enemy | null = null; let minDist = 4;
@@ -422,37 +466,47 @@ export class GameRoom {
           if (dist < minDist) { minDist = dist; nearestEnemy = enemy; }
         }
         if (nearestEnemy) {
+          // Flee direct
           const dx = sci.x - nearestEnemy.x; const dy = sci.y - nearestEnemy.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          sci.vx = (dx / dist) * sci.speed; sci.vy = (dy / dist) * sci.speed;
+          let tx = sci.x + (dx / dist) * sci.speed;
+          let ty = sci.y + (dy / dist) * sci.speed;
+          if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
+          sci.path = [];
         } else {
+          // Wander near portal using A* if strayed
           const pDist = Math.sqrt(Math.pow((this.portalX + 0.5) - sci.x, 2) + Math.pow((this.portalY + 0.5) - sci.y, 2));
           if (pDist > 3) {
-            const dx = (this.portalX + 0.5) - sci.x; const dy = (this.portalY + 0.5) - sci.y;
-            sci.vx = (dx / pDist) * (sci.speed * 0.5); sci.vy = (dy / pDist) * (sci.speed * 0.5);
+            if (!sci.path || sci.path.length === 0 || Math.random() < 0.05) {
+               const path = this.grid.findPath(Math.floor(sci.x), Math.floor(sci.y), this.portalX, this.portalY);
+               sci.path = path || [];
+            }
+            if (sci.path && sci.path.length > 0) {
+              const nextTarget = sci.path[0];
+              const targetX = nextTarget.x + 0.5; const targetY = nextTarget.y + 0.5;
+              const pdx = targetX - sci.x; const pdy = targetY - sci.y;
+              const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+              if (pdist <= (sci.speed * 0.5)) { sci.x = targetX; sci.y = targetY; sci.path.shift(); }
+              else { sci.x += (pdx / pdist) * (sci.speed * 0.5); sci.y += (pdy / pdist) * (sci.speed * 0.5); }
+            }
           } else {
-             if (Math.random() < 0.05) { sci.vx = (Math.random() - 0.5) * sci.speed; sci.vy = (Math.random() - 0.5) * sci.speed; }
+             sci.path = [];
+             if (Math.random() < 0.05) {
+               let tx = sci.x + (Math.random() - 0.5) * sci.speed; let ty = sci.y + (Math.random() - 0.5) * sci.speed;
+               if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
+             }
           }
         }
       }
 
-      // Try moving, check collisions
-      if (this.canMove(sci.x + sci.vx, sci.y)) {
-        sci.x += sci.vx;
-      } else { sci.vx = 0; }
-      if (this.canMove(sci.x, sci.y + sci.vy)) {
-        sci.y += sci.vy;
-      } else { sci.vy = 0; }
-
       sci.x = Math.max(0, Math.min(this.grid.width, sci.x)); sci.y = Math.max(0, Math.min(this.grid.height, sci.y));
+      sci.vx = sci.x - prevX; sci.vy = sci.y - prevY;
     }
 
     // Update Clones
-
     for (let i = this.clones.length - 1; i >= 0; i--) {
       const clone = this.clones[i];
-      const dx = clone.targetX - clone.x; const dy = clone.targetY - clone.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      let prevX = clone.x; let prevY = clone.y;
 
       if (clone.attackTimer > 0) {
          clone.attackTimer--;
@@ -461,31 +515,75 @@ export class GameRoom {
          clone.isAttacking = false;
       }
 
-
-      if (dist > 0.1) {
-        clone.vx = (dx / dist) * clone.speed; clone.vy = (dy / dist) * clone.speed;
-
-        if (this.canMove(clone.x + clone.vx, clone.y)) {
-          clone.x += clone.vx;
-        } else { clone.vx = 0; }
-
-        if (this.canMove(clone.x, clone.y + clone.vy)) {
-          clone.y += clone.vy;
-        } else { clone.vy = 0; }
-
-        // If blocked from both sides, recalculate target
-        if (clone.vx === 0 && clone.vy === 0) {
-            clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
-            clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
-        }
+      // Movement
+      if (clone.manningTowerId) {
+         const tower = this.towers.get(clone.manningTowerId);
+         if (tower) {
+            // Walk to tower
+            const targetX = tower.x + 0.5;
+            const targetY = tower.y + 0.5;
+            const distToTower = Math.sqrt(Math.pow(targetX - clone.x, 2) + Math.pow(targetY - clone.y, 2));
+            if (distToTower > 0.1) {
+                if (!clone.path || clone.path.length === 0 || Math.random() < 0.05) {
+                   const path = this.grid.findPath(Math.floor(clone.x), Math.floor(clone.y), tower.x, tower.y);
+                   clone.path = path || [];
+                }
+                if (clone.path && clone.path.length > 0) {
+                   const nextTarget = clone.path[0];
+                   const ntx = nextTarget.x + 0.5; const nty = nextTarget.y + 0.5;
+                   const pdx = ntx - clone.x; const pdy = nty - clone.y;
+                   const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+                   if (pdist <= clone.speed) { clone.x = ntx; clone.y = nty; clone.path.shift(); }
+                   else { clone.x += (pdx / pdist) * clone.speed; clone.y += (pdy / pdist) * clone.speed; }
+                } else {
+                   // A* failed or reached end but not exact center. Direct move if close.
+                   const dx = targetX - clone.x; const dy = targetY - clone.y;
+                   const dist = Math.sqrt(dx * dx + dy * dy);
+                   if (dist <= clone.speed) { clone.x = targetX; clone.y = targetY; }
+                   else { clone.x += (dx / dist) * clone.speed; clone.y += (dy / dist) * clone.speed; }
+                }
+            } else {
+                clone.x = targetX; clone.y = targetY; // Locked in
+            }
+         } else {
+            clone.manningTowerId = null; // Tower died
+            clone.path = [];
+         }
       } else {
-        clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
-        clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
-        clone.targetX = Math.max(0, Math.min(this.grid.width, clone.targetX));
-        clone.targetY = Math.max(0, Math.min(this.grid.height, clone.targetY));
+          // Patrol logic
+          const distToTarget = Math.sqrt(Math.pow(clone.targetX - clone.x, 2) + Math.pow(clone.targetY - clone.y, 2));
+          if (distToTarget > 0.5) {
+             if (!clone.path || clone.path.length === 0 || Math.random() < 0.05) {
+                 const path = this.grid.findPath(Math.floor(clone.x), Math.floor(clone.y), Math.floor(clone.targetX), Math.floor(clone.targetY));
+                 clone.path = path || [];
+                 if (!path) {
+                    // Pick new target if blocked
+                    clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
+                    clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
+                 }
+             }
+             if (clone.path && clone.path.length > 0) {
+                 const nextTarget = clone.path[0];
+                 const ntx = nextTarget.x + 0.5; const nty = nextTarget.y + 0.5;
+                 const pdx = ntx - clone.x; const pdy = nty - clone.y;
+                 const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+                 if (pdist <= clone.speed) { clone.x = ntx; clone.y = nty; clone.path.shift(); }
+                 else { clone.x += (pdx / pdist) * clone.speed; clone.y += (pdy / pdist) * clone.speed; }
+             }
+          } else {
+             clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
+             clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
+             clone.targetX = Math.max(0, Math.min(this.grid.width, clone.targetX));
+             clone.targetY = Math.max(0, Math.min(this.grid.height, clone.targetY));
+             clone.path = [];
+          }
       }
 
-      if (this.tickCount - clone.lastFired >= this.cloneFireRate) {
+      clone.x = Math.max(0, Math.min(this.grid.width, clone.x)); clone.y = Math.max(0, Math.min(this.grid.height, clone.y));
+      clone.vx = clone.x - prevX; clone.vy = clone.y - prevY;
+
+      // Shooting logic (Only if not manning a tower, manned towers shoot for them)
+      if (!clone.manningTowerId && this.tickCount - clone.lastFired >= this.cloneFireRate) {
         let target: Enemy | null = null; let minDist = 4;
         for (const enemy of this.enemies) {
           const edist = Math.sqrt(Math.pow(clone.x - enemy.x, 2) + Math.pow(clone.y - enemy.y, 2));
@@ -496,11 +594,9 @@ export class GameRoom {
             id: randomUUID(), x: clone.x, y: clone.y, targetEnemyId: target.id,
             damage: this.cloneDamage, speed: 0.25, isEnemy: false
           });
-
           clone.lastFired = this.tickCount;
           clone.isAttacking = true;
           clone.attackTimer = 15;
-
           // Set facing direction towards target for attack animation
           clone.vx = target.x - clone.x;
           clone.vy = target.y - clone.y;
@@ -523,7 +619,18 @@ export class GameRoom {
         const dist = Math.sqrt(Math.pow(enemy.x - clone.x, 2) + Math.pow(enemy.y - clone.y, 2));
         if (dist < 0.6) {
            clone.health -= (enemy.type === EnemyType.BRUTE ? 10 : 2);
-           if (clone.health <= 0) this.clones.splice(i, 1);
+
+           if (clone.health <= 0) {
+             if (clone.manningTowerId) {
+                const tower = this.towers.get(clone.manningTowerId);
+                if (tower) {
+                   tower.mannedByCloneId = null;
+                   tower.type = TowerType.REINFORCED_BLOCKADE;
+                }
+             }
+             this.clones.splice(i, 1);
+           }
+
         }
       }
     }
