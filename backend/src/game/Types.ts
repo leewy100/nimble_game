@@ -22,8 +22,9 @@ export interface Enemy {
   reward: number;
   path: Position[];
   targetTowerId: string | null;
-  vx: number; // For animation direction
+  vx: number;
   vy: number;
+  isAttacking: boolean; attackTimer: number;
 }
 
 export interface Tower {
@@ -43,10 +44,10 @@ export interface Projectile {
   id: string;
   x: number;
   y: number;
-  targetEnemyId: string | null; // null if hitting a creature without id? No, must target enemy.
+  targetEnemyId: string | null;
   damage: number;
   speed: number;
-  isEnemy: boolean; // if we want enemies to shoot later
+  isEnemy: boolean;
 }
 
 export interface ScientistNPC {
@@ -61,6 +62,7 @@ export interface ScientistNPC {
   isJoining: boolean;
   vx: number;
   vy: number;
+  isAttacking: boolean; attackTimer: number;
 }
 
 export interface Clone {
@@ -75,4 +77,5 @@ export interface Clone {
   lastFired: number;
   vx: number;
   vy: number;
+  isAttacking: boolean; attackTimer: number;
 }

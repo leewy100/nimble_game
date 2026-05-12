@@ -3,9 +3,10 @@ import { Enemy, Tower, Projectile, EnemyType, TowerType, Position, ScientistNPC,
 import { randomUUID } from 'crypto';
 
 const PHRASES = [
-  "Eureka!", "Run for your lives!", "The portal is unstable!",
-  "My beautiful experiment!", "I need more funding for this!",
-  "They are mutating!", "Science will prevail!"
+  "Game over, man, game over!", "It's a trap!", "They're coming out of the walls!",
+  "Great Scott!", "I'm giving her all she's got!", "I have a bad feeling about this...",
+  "Don't cross the streams!", "Danger, Will Robinson!", "By Grabthar's Hammer!",
+  "We need more time!", "The containment field is failing!", "This was not in the hypothesis!"
 ];
 
 export class GameRoom {
@@ -69,7 +70,7 @@ export class GameRoom {
 
     return {
       id: randomUUID(), x, y, health: 10, maxHealth: 10, speed: 0.03,
-      phrase: null, phraseTimer: 0, isJoining, vx: 0, vy: 0
+      phrase: null, phraseTimer: 0, isJoining, vx: 0, vy: 0, isAttacking: false, attackTimer: 0
     };
   }
 
@@ -207,7 +208,7 @@ export class GameRoom {
       if (this.spawnTimer <= 0) {
         const type = this.spawnQueue.shift()!;
         this.spawnEnemy(type);
-        this.spawnTimer = 60;
+        this.spawnTimer = Math.max(5, 60 - this.wave * 5); // Spawn faster in later waves
       } else {
         this.spawnTimer--;
       }
@@ -227,19 +228,19 @@ export class GameRoom {
          y: this.portalY + 0.5 + (Math.random() - 0.5),
          health: this.cloneMaxHealth,
          maxHealth: this.cloneMaxHealth,
-         speed: 0.04,
+         speed: 0.015, // slower clones
          targetX: this.portalX + 0.5,
          targetY: this.portalY + 0.5,
          lastFired: 0,
-         vx: 0, vy: 0
+         vx: 0, vy: 0, isAttacking: false, attackTimer: 0
        });
     }
 
-    const count = 5 + this.wave * 2;
+    const count = 10 + Math.pow(this.wave, 1.5) * 5; // Much larger batches scaling exponentially
     for (let i = 0; i < count; i++) {
       const rand = Math.random();
-      if (this.wave > 3 && rand < 0.2) this.spawnQueue.push(EnemyType.BRUTE);
-      else if (this.wave > 1 && rand < 0.4) this.spawnQueue.push(EnemyType.RUNNER);
+      if (this.wave > 3 && rand < 0.1) this.spawnQueue.push(EnemyType.BRUTE);
+      else if (this.wave > 1 && rand < 0.3) this.spawnQueue.push(EnemyType.RUNNER);
       else this.spawnQueue.push(EnemyType.BLOB);
     }
   }
@@ -259,7 +260,7 @@ export class GameRoom {
       maxHealth: type === EnemyType.BRUTE ? 150 : (type === EnemyType.BLOB ? 30 : 15),
       speed: type === EnemyType.RUNNER ? 0.05 : (type === EnemyType.BRUTE ? 0.015 : 0.025),
       reward: type === EnemyType.BRUTE ? 30 : 10,
-      path: [], targetTowerId: null, vx: 0, vy: 0
+      path: [], targetTowerId: null, vx: 0, vy: 0, isAttacking: false, attackTimer: 0
     };
 
     if (type === EnemyType.BRUTE && this.towers.size > 0) this.assignTargetTower(enemy);
@@ -272,8 +273,18 @@ export class GameRoom {
   }
 
   updateEnemies() {
+
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
+      if (enemy.attackTimer > 0) {
+         enemy.attackTimer--;
+         enemy.isAttacking = true;
+      } else {
+         enemy.isAttacking = false;
+      }
+
+
       let prevX = enemy.x; let prevY = enemy.y;
 
       if (enemy.targetTowerId) {
@@ -293,8 +304,14 @@ export class GameRoom {
                 else { enemy.x += (pdx / pdist) * enemy.speed; enemy.y += (pdy / pdist) * enemy.speed; }
             } else { enemy.x += (dx / dist) * enemy.speed; enemy.y += (dy / dist) * enemy.speed; }
           } else {
+
+
             if (this.tickCount % 60 === 0) {
+               enemy.isAttacking = true;
+               enemy.attackTimer = 15; // Hold animation for 15 ticks (1/4 second)
                targetTower.health -= (enemy.type === EnemyType.BRUTE ? 25 : 5);
+
+
                if (targetTower.health <= 0) {
                  this.towers.delete(enemy.targetTowerId);
                  this.grid.removeTower(targetTower.x, targetTower.y);
@@ -373,6 +390,14 @@ export class GameRoom {
     }
   }
 
+
+  canMove(x: number, y: number): boolean {
+    const gridX = Math.floor(x);
+    const gridY = Math.floor(y);
+    if (!this.grid.isValidPosition(gridX, gridY)) return false;
+    return this.grid.cells[gridY][gridX] === 0;
+  }
+
   updateAI() {
     // Update Scientists
     for (let i = this.scientists.length - 1; i >= 0; i--) {
@@ -389,7 +414,6 @@ export class GameRoom {
         if (dist < 1) sci.isJoining = false;
         else {
           sci.vx = (dx / dist) * sci.speed; sci.vy = (dy / dist) * sci.speed;
-          sci.x += sci.vx; sci.y += sci.vy;
         }
       } else {
         let nearestEnemy: Enemy | null = null; let minDist = 4;
@@ -410,20 +434,50 @@ export class GameRoom {
              if (Math.random() < 0.05) { sci.vx = (Math.random() - 0.5) * sci.speed; sci.vy = (Math.random() - 0.5) * sci.speed; }
           }
         }
-        sci.x += sci.vx; sci.y += sci.vy;
-        sci.x = Math.max(0, Math.min(this.grid.width, sci.x)); sci.y = Math.max(0, Math.min(this.grid.height, sci.y));
       }
+
+      // Try moving, check collisions
+      if (this.canMove(sci.x + sci.vx, sci.y)) {
+        sci.x += sci.vx;
+      } else { sci.vx = 0; }
+      if (this.canMove(sci.x, sci.y + sci.vy)) {
+        sci.y += sci.vy;
+      } else { sci.vy = 0; }
+
+      sci.x = Math.max(0, Math.min(this.grid.width, sci.x)); sci.y = Math.max(0, Math.min(this.grid.height, sci.y));
     }
 
     // Update Clones
+
     for (let i = this.clones.length - 1; i >= 0; i--) {
       const clone = this.clones[i];
       const dx = clone.targetX - clone.x; const dy = clone.targetY - clone.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
+      if (clone.attackTimer > 0) {
+         clone.attackTimer--;
+         clone.isAttacking = true;
+      } else {
+         clone.isAttacking = false;
+      }
+
+
       if (dist > 0.1) {
         clone.vx = (dx / dist) * clone.speed; clone.vy = (dy / dist) * clone.speed;
-        clone.x += clone.vx; clone.y += clone.vy;
+
+        if (this.canMove(clone.x + clone.vx, clone.y)) {
+          clone.x += clone.vx;
+        } else { clone.vx = 0; }
+
+        if (this.canMove(clone.x, clone.y + clone.vy)) {
+          clone.y += clone.vy;
+        } else { clone.vy = 0; }
+
+        // If blocked from both sides, recalculate target
+        if (clone.vx === 0 && clone.vy === 0) {
+            clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
+            clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
+        }
       } else {
         clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
         clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
@@ -442,7 +496,14 @@ export class GameRoom {
             id: randomUUID(), x: clone.x, y: clone.y, targetEnemyId: target.id,
             damage: this.cloneDamage, speed: 0.25, isEnemy: false
           });
+
           clone.lastFired = this.tickCount;
+          clone.isAttacking = true;
+          clone.attackTimer = 15;
+
+          // Set facing direction towards target for attack animation
+          clone.vx = target.x - clone.x;
+          clone.vy = target.y - clone.y;
         }
       }
     }

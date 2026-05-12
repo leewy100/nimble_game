@@ -81,27 +81,47 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
   }
 
   function getDirectionRowOffset(vx: number, vy: number): number {
+    // 0: North, 1: East, 2: South, 3: West
     if (Math.abs(vx) > Math.abs(vy)) {
-      return vx > 0 ? 2 : 1; // Right : Left
+      return vx > 0 ? 1 : 3; // East : West
     } else {
-      return vy > 0 ? 0 : 3; // Down : Up
+      return vy > 0 ? 2 : 0; // South : North
     }
   }
 
-  function drawSprite(ctx: CanvasRenderingContext2D, baseRow: number, vx: number, vy: number, x: number, y: number, scale: number = 1) {
+  function drawSprite(ctx: CanvasRenderingContext2D, baseRow: number, entity: any, scale: number = 1) {
     if (!spriteSheet.complete || spriteSheet.width === 0) return false;
 
-    const dirOffset = getDirectionRowOffset(vx, vy);
-    const row = baseRow + dirOffset;
+    const { vx, vy, isAttacking, x, y } = entity;
+    const dirOffset = getDirectionRowOffset(vx || 0, vy || 0);
 
-    const isMoving = Math.abs(vx) > 0.001 || Math.abs(vy) > 0.001;
-    const col = isMoving ? Math.floor(animationTime * 5) % 4 : 0;
+    let row = baseRow;
+    let frames = 8;
+
+    if (isAttacking) {
+      // Attack rows are shifted down by 4 for Clones and Creatures. Scientists don't attack.
+      // But we just use baseRow + 4 if they can attack.
+      row = baseRow + 4 + dirOffset;
+      frames = 4;
+    } else {
+      row = baseRow + dirOffset;
+      frames = 8;
+    }
+
+    const isMoving = Math.abs(vx || 0) > 0.001 || Math.abs(vy || 0) > 0.001 || isAttacking;
+
+    // Slow down attack animation slightly, keep walk animation responsive
+    const speed = isAttacking ? 6 : 8;
+    const col = isMoving ? Math.floor(animationTime * speed) % frames : 0;
 
     const sx = col * SPRITE_SIZE;
     const sy = row * SPRITE_SIZE;
 
+    const cx = x * TILE_SIZE;
+    const cy = y * TILE_SIZE;
     const size = TILE_SIZE * scale;
-    ctx.drawImage(spriteSheet, sx, sy, SPRITE_SIZE, SPRITE_SIZE, x - size/2, y - size/2, size, size);
+
+    ctx.drawImage(spriteSheet, sx, sy, SPRITE_SIZE, SPRITE_SIZE, cx - size/2, cy - size/2, size, size);
     return true;
   }
 
@@ -161,7 +181,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       for (const sci of gameState.scientists) {
         const cx = sci.x * TILE_SIZE;
         const cy = sci.y * TILE_SIZE;
-        if (!drawSprite(ctx, 16, sci.vx || 0, sci.vy || 0, cx, cy, 0.8)) {
+        if (!drawSprite(ctx, 16, sci, 0.8)) {
            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'white'; ctx.fill(); ctx.closePath();
         }
 
@@ -180,12 +200,12 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       }
     }
 
-    // Draw Clones (Rows 0-3)
+    // Draw Clones (Rows 0-3 for walk, 4-7 for attack)
     if (gameState.clones) {
       for (const clone of gameState.clones) {
         const cx = clone.x * TILE_SIZE;
         const cy = clone.y * TILE_SIZE;
-        if (!drawSprite(ctx, 0, clone.vx || 0, clone.vy || 0, cx, cy, 0.8)) {
+        if (!drawSprite(ctx, 0, clone, 0.8)) {
            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'yellow'; ctx.fill(); ctx.closePath();
         }
 
@@ -197,22 +217,23 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       }
     }
 
-    // Draw Enemies (Rows 8-11)
+    // Draw Enemies (Rows 8-11 for walk, 12-15 for attack)
     if (gameState.enemies) {
       for (const enemy of gameState.enemies) {
-        const ex = enemy.x * TILE_SIZE;
-        const ey = enemy.y * TILE_SIZE;
-
         let scale = 0.8;
         if (enemy.type === 'RUNNER') scale = 0.6;
         if (enemy.type === 'BRUTE') scale = 1.2;
 
-        if (!drawSprite(ctx, 8, enemy.vx || 0, enemy.vy || 0, ex, ey, scale)) {
-           ctx.beginPath(); ctx.arc(ex, ey, 10 * scale, 0, Math.PI * 2); ctx.fillStyle = 'orange'; ctx.fill(); ctx.closePath();
+        if (!drawSprite(ctx, 8, enemy, scale)) {
+           const cx = enemy.x * TILE_SIZE;
+           const cy = enemy.y * TILE_SIZE;
+           ctx.beginPath(); ctx.arc(cx, cy, 10 * scale, 0, Math.PI * 2); ctx.fillStyle = 'orange'; ctx.fill(); ctx.closePath();
         }
 
         const hpPercent = enemy.health / enemy.maxHealth;
         const r = 10 * scale;
+        const ex = enemy.x * TILE_SIZE;
+        const ey = enemy.y * TILE_SIZE;
         ctx.fillStyle = 'red';
         ctx.fillRect(ex - r, ey - r - 6, r * 2, 4);
         ctx.fillStyle = 'green';
