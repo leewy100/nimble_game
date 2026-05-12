@@ -396,12 +396,35 @@ export class GameRoom {
         const dx = targetX - enemy.x; const dy = targetY - enemy.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist <= enemy.speed) { enemy.x = targetX; enemy.y = targetY; enemy.path.shift(); }
-        else { enemy.x += (dx / dist) * enemy.speed; enemy.y += (dy / dist) * enemy.speed; }
+        // Before moving, check if the target cell is blocked by a tower
+        let isBlocked = false;
+        for (const tower of this.towers.values()) {
+           if (Math.abs(targetX - 0.5 - tower.x) < 0.1 && Math.abs(targetY - 0.5 - tower.y) < 0.1) {
+              const distToTower = Math.sqrt(Math.pow((tower.x + 0.5) - enemy.x, 2) + Math.pow((tower.y + 0.5) - enemy.y, 2));
+              if (distToTower <= 1.1) {
+                 isBlocked = true;
+                 break;
+              }
+           }
+        }
+
+        if (!isBlocked) {
+           if (dist <= enemy.speed) { enemy.x = targetX; enemy.y = targetY; enemy.path.shift(); }
+           else { enemy.x += (dx / dist) * enemy.speed; enemy.y += (dy / dist) * enemy.speed; }
+        }
       } else {
          const dx = (this.portalX + 0.5) - enemy.x; const dy = (this.portalY + 0.5) - enemy.y;
          const dist = Math.sqrt(dx * dx + dy * dy);
-         if (dist > enemy.speed) { enemy.x += (dx / dist) * enemy.speed; enemy.y += (dy / dist) * enemy.speed; }
+         // Before moving to portal directly, make sure no tower is right in front
+         let isBlocked = false;
+         for (const tower of this.towers.values()) {
+            const distToTower = Math.sqrt(Math.pow((tower.x + 0.5) - enemy.x, 2) + Math.pow((tower.y + 0.5) - enemy.y, 2));
+            if (distToTower <= 1.1) {
+               isBlocked = true;
+               break;
+            }
+         }
+         if (!isBlocked && dist > enemy.speed) { enemy.x += (dx / dist) * enemy.speed; enemy.y += (dy / dist) * enemy.speed; }
       }
 
       enemy.vx = enemy.x - prevX; enemy.vy = enemy.y - prevY;
@@ -509,17 +532,58 @@ export class GameRoom {
           if (dist < minDist) { minDist = dist; nearestEnemy = enemy; }
         }
         if (nearestEnemy) {
-          // Flee direct
-          const dx = sci.x - nearestEnemy.x; const dy = sci.y - nearestEnemy.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          // Increase speed when fleeing
-          const fleeSpeed = sci.speed * 1.5;
-          let tx = sci.x + (dx / dist) * fleeSpeed;
-          let ty = sci.y + (dy / dist) * fleeSpeed;
-          if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
-          sci.path = [];
+          // Flee direct, but if far from portal, try to path back if it takes them away from the enemy
+          const pDist = Math.sqrt(Math.pow((this.portalX + 0.5) - sci.x, 2) + Math.pow((this.portalY + 0.5) - sci.y, 2));
+
+          if (pDist > 4) {
+             // Too far from base, try to A* path back to portal safely
+             if (!sci.path || sci.path.length === 0 || Math.random() < 0.1) {
+                const path = this.grid.findPath(Math.floor(sci.x), Math.floor(sci.y), this.portalX, this.portalY);
+                sci.path = path || [];
+             }
+             if (sci.path && sci.path.length > 0) {
+               const nextTarget = sci.path[0];
+               const targetX = nextTarget.x + 0.5; const targetY = nextTarget.y + 0.5;
+
+               // Check if heading to the next target brings us closer to the enemy
+               const targetEnemyDist = Math.sqrt(Math.pow(targetX - nearestEnemy.x, 2) + Math.pow(targetY - nearestEnemy.y, 2));
+               if (targetEnemyDist > minDist - 1) { // It's safe enough to proceed towards portal
+                   const pdx = targetX - sci.x; const pdy = targetY - sci.y;
+                   const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+                   const fleeSpeed = sci.speed * 1.5;
+                   if (pdist <= fleeSpeed) { sci.x = targetX; sci.y = targetY; sci.path.shift(); }
+                   else { sci.x += (pdx / pdist) * fleeSpeed; sci.y += (pdy / pdist) * fleeSpeed; }
+               } else {
+                   // Proceeding to portal brings us too close to enemy, override with direct flee
+                   const dx = sci.x - nearestEnemy.x; const dy = sci.y - nearestEnemy.y;
+                   const dist = Math.sqrt(dx * dx + dy * dy);
+                   const fleeSpeed = sci.speed * 1.5;
+                   let tx = sci.x + (dx / dist) * fleeSpeed;
+                   let ty = sci.y + (dy / dist) * fleeSpeed;
+                   if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
+                   sci.path = [];
+               }
+             } else {
+                 // Flee direct (fallback)
+                 const dx = sci.x - nearestEnemy.x; const dy = sci.y - nearestEnemy.y;
+                 const dist = Math.sqrt(dx * dx + dy * dy);
+                 const fleeSpeed = sci.speed * 1.5;
+                 let tx = sci.x + (dx / dist) * fleeSpeed;
+                 let ty = sci.y + (dy / dist) * fleeSpeed;
+                 if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
+             }
+          } else {
+             // Flee direct
+             const dx = sci.x - nearestEnemy.x; const dy = sci.y - nearestEnemy.y;
+             const dist = Math.sqrt(dx * dx + dy * dy);
+             const fleeSpeed = sci.speed * 1.5;
+             let tx = sci.x + (dx / dist) * fleeSpeed;
+             let ty = sci.y + (dy / dist) * fleeSpeed;
+             if (this.canMove(tx, ty)) { sci.x = tx; sci.y = ty; }
+             sci.path = [];
+          }
         } else {
-          // Wander near portal using A* if strayed
+          // Return to base (wander near portal using A* if strayed)
           const pDist = Math.sqrt(Math.pow((this.portalX + 0.5) - sci.x, 2) + Math.pow((this.portalY + 0.5) - sci.y, 2));
           if (pDist > 1.5) { // Cluster tightly near portal
             if (!sci.path || sci.path.length === 0 || Math.random() < 0.05) {
