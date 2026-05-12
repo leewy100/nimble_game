@@ -76,6 +76,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('upgrade_clones', () => {
+    if (currentRoomId) {
+      const room = roomManager.getRoom(currentRoomId);
+      if (room) {
+        room.upgradeClones();
+      }
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     if (currentRoomId) {

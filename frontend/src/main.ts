@@ -63,12 +63,13 @@ function renderGameRoom() {
       .tower-btn { padding: 8px 16px; cursor: pointer; background: #333; color: white; border: 1px solid #555; }
       .tower-btn.active { background: #3498db; border-color: #2980b9; }
       .upgrade-btn { padding: 4px 8px; cursor: pointer; background: #2ecc71; color: white; border: none; font-size: 12px; margin-right: 5px; }
+      .insurance-btn { padding: 8px 16px; cursor: pointer; background: #e67e22; color: white; border: 1px solid #d35400; font-weight: bold; }
     </style>
     <div style="display: flex; flex-direction: column; align-items: center; background: #111; color: white; min-height: 100vh;">
       <div style="padding: 10px; width: 800px; display: flex; justify-content: space-between; align-items: center;">
         <span>Room: <b>${currentRoomId}</b></span>
         <span id="waveDisplay">Wave: 0</span>
-        <span>Bank: $<span id="bankDisplay" style="color:#f1c40f;">0</span></span>
+        <span>Credits: $<span id="bankDisplay" style="color:#f1c40f;">0</span></span>
         <span>Base: <span id="healthDisplay" style="color:#e74c3c;">0</span></span>
       </div>
 
@@ -80,11 +81,15 @@ function renderGameRoom() {
         </div>
 
         <div id="upgradePanel" style="display: none; background: #222; padding: 10px; border: 1px solid #555;">
-          <span style="font-size: 14px; margin-right: 10px;">Upgrades ($40 ea):</span>
+          <span style="font-size: 14px; margin-right: 10px;">Tower Upgrades ($40):</span>
           <button class="upgrade-btn" onclick="upgradeTower('damage')">+Dmg</button>
           <button class="upgrade-btn" onclick="upgradeTower('speed')">+Speed</button>
           <button class="upgrade-btn" onclick="upgradeTower('range')">+Range</button>
           <button class="upgrade-btn" onclick="upgradeTower('armor')">+Armor</button>
+        </div>
+
+        <div>
+          <button id="insuranceBtn" class="insurance-btn" onclick="upgradeClones()">Insurance Policy ($100)</button>
         </div>
       </div>
 

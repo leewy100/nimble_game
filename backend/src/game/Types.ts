@@ -20,8 +20,10 @@ export interface Enemy {
   maxHealth: number;
   speed: number;
   reward: number;
-  path: Position[]; // Current path
-  targetTowerId: string | null; // For brutes or blocked enemies
+  path: Position[];
+  targetTowerId: string | null;
+  vx: number; // For animation direction
+  vy: number;
 }
 
 export interface Tower {
@@ -33,15 +35,44 @@ export interface Tower {
   maxHealth: number;
   damage: number;
   range: number;
-  fireRate: number; // ticks between shots
-  lastFired: number; // tick counter
+  fireRate: number;
+  lastFired: number;
 }
 
 export interface Projectile {
   id: string;
   x: number;
   y: number;
-  targetEnemyId: string;
+  targetEnemyId: string | null; // null if hitting a creature without id? No, must target enemy.
   damage: number;
   speed: number;
+  isEnemy: boolean; // if we want enemies to shoot later
+}
+
+export interface ScientistNPC {
+  id: string;
+  x: number;
+  y: number;
+  health: number;
+  maxHealth: number;
+  speed: number;
+  phrase: string | null;
+  phraseTimer: number;
+  isJoining: boolean;
+  vx: number;
+  vy: number;
+}
+
+export interface Clone {
+  id: string;
+  x: number;
+  y: number;
+  health: number;
+  maxHealth: number;
+  speed: number;
+  targetX: number;
+  targetY: number;
+  lastFired: number;
+  vx: number;
+  vy: number;
 }

@@ -1,19 +1,22 @@
 import { Socket } from 'socket.io-client';
 
 const TILE_SIZE = 40;
+const SPRITE_SIZE = 32;
 
 export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
   const ctx = canvas.getContext('2d')!;
   let gameState: any = null;
-  let selectedTowerType: string = 'SCIENTIST'; // default
+  let selectedTowerType: string = 'SCIENTIST';
   let selectedTowerId: string | null = null;
   let animationTime = 0;
+
+  const spriteSheet = new Image();
+  spriteSheet.src = '/sprites.png';
 
   socket.on('game_state', (state) => {
     gameState = state;
     updateUI(state);
 
-    // Check if currently selected tower died
     if (selectedTowerId && !gameState.towers.find((t: any) => t.id === selectedTowerId)) {
        selectedTowerId = null;
        document.getElementById('upgradePanel')!.style.display = 'none';
@@ -61,14 +64,45 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     }
   };
 
+  (window as any).upgradeClones = () => {
+    socket.emit('upgrade_clones');
+  };
+
   function updateUI(state: any) {
     const bankDisplay = document.getElementById('bankDisplay');
     const healthDisplay = document.getElementById('healthDisplay');
     const waveDisplay = document.getElementById('waveDisplay');
+    const insuranceBtn = document.getElementById('insuranceBtn');
 
     if (bankDisplay) bankDisplay.innerText = state.bank;
     if (healthDisplay) healthDisplay.innerText = state.baseHealth;
     if (waveDisplay) waveDisplay.innerText = `Wave: ${state.wave} ${state.enemies.length === 0 ? '(Next in ' + Math.ceil(state.waveTimer/60) + 's)' : ''}`;
+    if (insuranceBtn) insuranceBtn.innerText = `Insurance Policy ($${state.insurancePolicyCost})`;
+  }
+
+  function getDirectionRowOffset(vx: number, vy: number): number {
+    if (Math.abs(vx) > Math.abs(vy)) {
+      return vx > 0 ? 2 : 1; // Right : Left
+    } else {
+      return vy > 0 ? 0 : 3; // Down : Up
+    }
+  }
+
+  function drawSprite(ctx: CanvasRenderingContext2D, baseRow: number, vx: number, vy: number, x: number, y: number, scale: number = 1) {
+    if (!spriteSheet.complete || spriteSheet.width === 0) return false;
+
+    const dirOffset = getDirectionRowOffset(vx, vy);
+    const row = baseRow + dirOffset;
+
+    const isMoving = Math.abs(vx) > 0.001 || Math.abs(vy) > 0.001;
+    const col = isMoving ? Math.floor(animationTime * 5) % 4 : 0;
+
+    const sx = col * SPRITE_SIZE;
+    const sy = row * SPRITE_SIZE;
+
+    const size = TILE_SIZE * scale;
+    ctx.drawImage(spriteSheet, sx, sy, SPRITE_SIZE, SPRITE_SIZE, x - size/2, y - size/2, size, size);
+    return true;
   }
 
   function render() {
@@ -90,7 +124,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
     }
 
-    // Draw Portal (Center 1x1 tile)
+    // Draw Portal
     const px = gameState.portalX * TILE_SIZE;
     const py = gameState.portalY * TILE_SIZE;
     const gradient = ctx.createRadialGradient(
@@ -103,53 +137,98 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
     // Draw Towers
-    for (const tower of gameState.towers) {
-      ctx.fillStyle = tower.type === 'SCIENTIST' ? '#3498db' : '#95a5a6';
-      ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    if (gameState.towers) {
+      for (const tower of gameState.towers) {
+        ctx.fillStyle = tower.type === 'SCIENTIST' ? '#3498db' : '#95a5a6';
+        ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
 
-      if (selectedTowerId === tower.id) {
-         ctx.strokeStyle = '#f1c40f';
-         ctx.lineWidth = 2;
-         ctx.strokeRect(tower.x * TILE_SIZE, tower.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        if (selectedTowerId === tower.id) {
+           ctx.strokeStyle = '#f1c40f';
+           ctx.lineWidth = 2;
+           ctx.strokeRect(tower.x * TILE_SIZE, tower.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+
+        const hpPercent = tower.health / tower.maxHealth;
+        ctx.fillStyle = 'red';
+        ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + TILE_SIZE - 6, TILE_SIZE - 4, 4);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + TILE_SIZE - 6, (TILE_SIZE - 4) * hpPercent, 4);
       }
-
-      const hpPercent = tower.health / tower.maxHealth;
-      ctx.fillStyle = 'red';
-      ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + TILE_SIZE - 6, TILE_SIZE - 4, 4);
-      ctx.fillStyle = 'green';
-      ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + TILE_SIZE - 6, (TILE_SIZE - 4) * hpPercent, 4);
     }
 
-    // Draw Enemies
-    for (const enemy of gameState.enemies) {
-      let color = '#e74c3c'; // Blob
-      let radius = TILE_SIZE / 3;
-      if (enemy.type === 'RUNNER') { color = '#f1c40f'; radius = TILE_SIZE / 4; }
-      if (enemy.type === 'BRUTE') { color = '#8e44ad'; radius = TILE_SIZE / 2 - 2; }
+    // Draw Scientists (Rows 16-19)
+    if (gameState.scientists) {
+      for (const sci of gameState.scientists) {
+        const cx = sci.x * TILE_SIZE;
+        const cy = sci.y * TILE_SIZE;
+        if (!drawSprite(ctx, 16, sci.vx || 0, sci.vy || 0, cx, cy, 0.8)) {
+           ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'white'; ctx.fill(); ctx.closePath();
+        }
 
-      const epx = enemy.x * TILE_SIZE;
-      const epy = enemy.y * TILE_SIZE;
+        if (sci.phrase) {
+          ctx.fillStyle = 'white';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(sci.phrase, cx, cy - 20);
+        }
 
-      ctx.beginPath();
-      ctx.arc(epx, epy, radius, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.closePath();
+        const hpPercent = sci.health / sci.maxHealth;
+        ctx.fillStyle = 'red';
+        ctx.fillRect(cx - 10, cy - 15, 20, 3);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(cx - 10, cy - 15, 20 * hpPercent, 3);
+      }
+    }
 
-      const hpPercent = enemy.health / enemy.maxHealth;
-      ctx.fillStyle = 'red';
-      ctx.fillRect(epx - radius, epy - radius - 6, radius * 2, 4);
-      ctx.fillStyle = 'green';
-      ctx.fillRect(epx - radius, epy - radius - 6, (radius * 2) * hpPercent, 4);
+    // Draw Clones (Rows 0-3)
+    if (gameState.clones) {
+      for (const clone of gameState.clones) {
+        const cx = clone.x * TILE_SIZE;
+        const cy = clone.y * TILE_SIZE;
+        if (!drawSprite(ctx, 0, clone.vx || 0, clone.vy || 0, cx, cy, 0.8)) {
+           ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'yellow'; ctx.fill(); ctx.closePath();
+        }
+
+        const hpPercent = clone.health / clone.maxHealth;
+        ctx.fillStyle = 'red';
+        ctx.fillRect(cx - 10, cy - 15, 20, 3);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(cx - 10, cy - 15, 20 * hpPercent, 3);
+      }
+    }
+
+    // Draw Enemies (Rows 8-11)
+    if (gameState.enemies) {
+      for (const enemy of gameState.enemies) {
+        const ex = enemy.x * TILE_SIZE;
+        const ey = enemy.y * TILE_SIZE;
+
+        let scale = 0.8;
+        if (enemy.type === 'RUNNER') scale = 0.6;
+        if (enemy.type === 'BRUTE') scale = 1.2;
+
+        if (!drawSprite(ctx, 8, enemy.vx || 0, enemy.vy || 0, ex, ey, scale)) {
+           ctx.beginPath(); ctx.arc(ex, ey, 10 * scale, 0, Math.PI * 2); ctx.fillStyle = 'orange'; ctx.fill(); ctx.closePath();
+        }
+
+        const hpPercent = enemy.health / enemy.maxHealth;
+        const r = 10 * scale;
+        ctx.fillStyle = 'red';
+        ctx.fillRect(ex - r, ey - r - 6, r * 2, 4);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(ex - r, ey - r - 6, (r * 2) * hpPercent, 4);
+      }
     }
 
     // Draw Projectiles
-    for (const proj of gameState.projectiles) {
-      ctx.beginPath();
-      ctx.arc(proj.x * TILE_SIZE, proj.y * TILE_SIZE, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#ecf0f1';
-      ctx.fill();
-      ctx.closePath();
+    if (gameState.projectiles) {
+      for (const proj of gameState.projectiles) {
+        ctx.beginPath();
+        ctx.arc(proj.x * TILE_SIZE, proj.y * TILE_SIZE, 3, 0, Math.PI * 2);
+        ctx.fillStyle = proj.isEnemy ? '#e74c3c' : '#ecf0f1';
+        ctx.fill();
+        ctx.closePath();
+      }
     }
 
     if (gameState.isGameOver) {
