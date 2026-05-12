@@ -89,7 +89,8 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     }
   }
 
-  function drawSprite(ctx: CanvasRenderingContext2D, baseRow: number, entity: any, scale: number = 1) {
+
+  function drawSprite(ctx: CanvasRenderingContext2D, baseRow: number, entity: any, scale: number = 1, entityType: string = 'CLONE') {
     if (!spriteSheet.complete || spriteSheet.width === 0) return false;
 
     const { vx, vy, isAttacking, x, y } = entity;
@@ -99,19 +100,22 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     let frames = 8;
 
     if (isAttacking) {
-      // Attack rows are shifted down by 4 for Clones and Creatures. Scientists don't attack.
-      // But we just use baseRow + 4 if they can attack.
       row = baseRow + 4 + dirOffset;
       frames = 4;
     } else {
       row = baseRow + dirOffset;
-      frames = 8;
+      if (entityType === 'CREATURE') {
+        frames = 4;
+      } else if (entityType === 'SCIENTIST') {
+        frames = 6;
+      } else {
+        frames = 8;
+      }
     }
 
     const isMoving = Math.abs(vx || 0) > 0.001 || Math.abs(vy || 0) > 0.001 || isAttacking;
 
-    // Slow down attack animation slightly, keep walk animation responsive
-    const speed = isAttacking ? 6 : 8;
+    const speed = isAttacking ? 6 : (entityType === 'CREATURE' ? 6 : 8);
     const col = isMoving ? Math.floor(animationTime * speed) % frames : 0;
 
     const sx = col * SPRITE_SIZE;
@@ -181,7 +185,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       for (const sci of gameState.scientists) {
         const cx = sci.x * TILE_SIZE;
         const cy = sci.y * TILE_SIZE;
-        if (!drawSprite(ctx, 16, sci, 0.8)) {
+        if (!drawSprite(ctx, 16, sci, 0.8, 'SCIENTIST')) {
            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'white'; ctx.fill(); ctx.closePath();
         }
 
@@ -205,7 +209,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       for (const clone of gameState.clones) {
         const cx = clone.x * TILE_SIZE;
         const cy = clone.y * TILE_SIZE;
-        if (!drawSprite(ctx, 0, clone, 0.8)) {
+        if (!drawSprite(ctx, 0, clone, 0.8, 'CLONE')) {
            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fillStyle = 'yellow'; ctx.fill(); ctx.closePath();
         }
 
@@ -224,7 +228,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
         if (enemy.type === 'RUNNER') scale = 0.6;
         if (enemy.type === 'BRUTE') scale = 1.2;
 
-        if (!drawSprite(ctx, 8, enemy, scale)) {
+        if (!drawSprite(ctx, 8, enemy, scale, 'CREATURE')) {
            const cx = enemy.x * TILE_SIZE;
            const cy = enemy.y * TILE_SIZE;
            ctx.beginPath(); ctx.arc(cx, cy, 10 * scale, 0, Math.PI * 2); ctx.fillStyle = 'orange'; ctx.fill(); ctx.closePath();
