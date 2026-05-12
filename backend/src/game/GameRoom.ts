@@ -356,7 +356,7 @@ export class GameRoom {
           const dy = (targetTower.y + 0.5) - enemy.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist > 0.8) {
+          if (dist > 1.1) { // Stop further away to attack
             if (enemy.path && enemy.path.length > 0) {
                 const nextTarget = enemy.path[0];
                 const targetX = nextTarget.x + 0.5; const targetY = nextTarget.y + 0.5;
@@ -521,7 +521,7 @@ export class GameRoom {
         } else {
           // Wander near portal using A* if strayed
           const pDist = Math.sqrt(Math.pow((this.portalX + 0.5) - sci.x, 2) + Math.pow((this.portalY + 0.5) - sci.y, 2));
-          if (pDist > 3) {
+          if (pDist > 1.5) { // Cluster tightly near portal
             if (!sci.path || sci.path.length === 0 || Math.random() < 0.05) {
                const path = this.grid.findPath(Math.floor(sci.x), Math.floor(sci.y), this.portalX, this.portalY);
                sci.path = path || [];
@@ -544,20 +544,20 @@ export class GameRoom {
         }
       }
 
-      // Separation from other scientists
+      // Separation from other scientists (tightened to reduce twitchiness)
       let sepX = 0; let sepY = 0; let sepCount = 0;
       for (const other of this.scientists) {
          if (sci.id !== other.id) {
             const dx = sci.x - other.x; const dy = sci.y - other.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > 0 && dist < 0.6) {
+            if (dist > 0 && dist < 0.35) { // tighter grouping radius
                sepX += dx / dist; sepY += dy / dist; sepCount++;
             }
          }
       }
       if (sepCount > 0) {
-         const moveX = sci.x + (sepX / sepCount) * (sci.speed * 0.5);
-         const moveY = sci.y + (sepY / sepCount) * (sci.speed * 0.5);
+         const moveX = sci.x + (sepX / sepCount) * (sci.speed * 0.3); // weaker force
+         const moveY = sci.y + (sepY / sepCount) * (sci.speed * 0.3);
          if (this.canMove(moveX, moveY)) { sci.x = moveX; sci.y = moveY; }
       }
 
@@ -612,7 +612,18 @@ export class GameRoom {
             clone.path = [];
          }
       } else {
-          // Patrol logic
+          // Patrol logic - Clones form a perimeter around the scientists (portal)
+          const pDist = Math.sqrt(Math.pow((this.portalX + 0.5) - clone.x, 2) + Math.pow((this.portalY + 0.5) - clone.y, 2));
+
+          if (pDist < 2.0 || pDist > 3.5) {
+             if (Math.random() < 0.05) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 2.0 + Math.random() * 1.5;
+                clone.targetX = this.portalX + 0.5 + Math.cos(angle) * radius;
+                clone.targetY = this.portalY + 0.5 + Math.sin(angle) * radius;
+             }
+          }
+
           const distToTarget = Math.sqrt(Math.pow(clone.targetX - clone.x, 2) + Math.pow(clone.targetY - clone.y, 2));
           if (distToTarget > 0.5) {
              if (!clone.path || clone.path.length === 0 || Math.random() < 0.05) {
@@ -620,8 +631,10 @@ export class GameRoom {
                  clone.path = path || [];
                  if (!path) {
                     // Pick new target if blocked
-                    clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
-                    clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = 2.0 + Math.random() * 1.5;
+                    clone.targetX = this.portalX + 0.5 + Math.cos(angle) * radius;
+                    clone.targetY = this.portalY + 0.5 + Math.sin(angle) * radius;
                  }
              }
              if (clone.path && clone.path.length > 0) {
@@ -633,12 +646,33 @@ export class GameRoom {
                  else { clone.x += (pdx / pdist) * clone.speed; clone.y += (pdy / pdist) * clone.speed; }
              }
           } else {
-             clone.targetX = this.portalX + 0.5 + (Math.random() - 0.5) * 6;
-             clone.targetY = this.portalY + 0.5 + (Math.random() - 0.5) * 6;
+             const angle = Math.random() * Math.PI * 2;
+             const radius = 2.0 + Math.random() * 1.5;
+             clone.targetX = this.portalX + 0.5 + Math.cos(angle) * radius;
+             clone.targetY = this.portalY + 0.5 + Math.sin(angle) * radius;
              clone.targetX = Math.max(0, Math.min(this.grid.width, clone.targetX));
              clone.targetY = Math.max(0, Math.min(this.grid.height, clone.targetY));
              clone.path = [];
           }
+      }
+
+      // Separation from other clones
+      if (!clone.manningTowerId) {
+         let sepX = 0; let sepY = 0; let sepCount = 0;
+         for (const other of this.clones) {
+            if (clone.id !== other.id && !other.manningTowerId) {
+               const dx = clone.x - other.x; const dy = clone.y - other.y;
+               const dist = Math.sqrt(dx * dx + dy * dy);
+               if (dist > 0 && dist < 0.6) {
+                  sepX += dx / dist; sepY += dy / dist; sepCount++;
+               }
+            }
+         }
+         if (sepCount > 0) {
+            const moveX = clone.x + (sepX / sepCount) * (clone.speed * 0.5);
+            const moveY = clone.y + (sepY / sepCount) * (clone.speed * 0.5);
+            if (this.canMove(moveX, moveY)) { clone.x = moveX; clone.y = moveY; }
+         }
       }
 
       clone.x = Math.max(0, Math.min(this.grid.width, clone.x)); clone.y = Math.max(0, Math.min(this.grid.height, clone.y));
