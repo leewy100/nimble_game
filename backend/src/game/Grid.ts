@@ -29,8 +29,8 @@ export class Grid {
     }
   }
 
-  // A* pathfinding from start to any cell in the bottom row
-  findPath(startX: number, startY: number): Position[] | null {
+  // A* pathfinding from start to a specific target
+  findPath(startX: number, startY: number, targetX: number, targetY: number): Position[] | null {
     const start = { x: startX, y: startY };
 
     const openSet = [start];
@@ -40,8 +40,8 @@ export class Grid {
     gScore.set(`${start.x},${start.y}`, 0);
 
     const fScore = new Map<string, number>();
-    // Heuristic: vertical distance to bottom
-    fScore.set(`${start.x},${start.y}`, this.height - 1 - start.y);
+    // Heuristic: manhattan distance to target
+    fScore.set(`${start.x},${start.y}`, Math.abs(start.x - targetX) + Math.abs(start.y - targetY));
 
     while (openSet.length > 0) {
       // Get node in openSet with lowest fScore
@@ -56,8 +56,8 @@ export class Grid {
 
       const current = openSet[currentIdx];
 
-      // If we reached the bottom row
-      if (current.y === this.height - 1) {
+      // If we reached the target
+      if (current.x === targetX && current.y === targetY) {
         return this.reconstructPath(cameFrom, current);
       }
 
@@ -72,7 +72,7 @@ export class Grid {
 
       for (const neighbor of neighbors) {
         if (!this.isValidPosition(neighbor.x, neighbor.y)) continue;
-        if (this.cells[neighbor.y][neighbor.x] !== 0) continue; // Blocked
+        if (this.cells[neighbor.y][neighbor.x] !== 0 && !(neighbor.x === targetX && neighbor.y === targetY)) continue; // Blocked
 
         const tentative_gScore = (gScore.get(`${current.x},${current.y}`) || Infinity) + 1;
         const neighborKey = `${neighbor.x},${neighbor.y}`;
@@ -80,7 +80,7 @@ export class Grid {
         if (tentative_gScore < (gScore.get(neighborKey) || Infinity)) {
           cameFrom.set(neighborKey, current);
           gScore.set(neighborKey, tentative_gScore);
-          fScore.set(neighborKey, tentative_gScore + (this.height - 1 - neighbor.y));
+          fScore.set(neighborKey, tentative_gScore + Math.abs(neighbor.x - targetX) + Math.abs(neighbor.y - targetY));
 
           if (!openSet.some(n => n.x === neighbor.x && n.y === neighbor.y)) {
             openSet.push(neighbor);

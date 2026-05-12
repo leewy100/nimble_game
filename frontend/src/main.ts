@@ -62,6 +62,7 @@ function renderGameRoom() {
     <style>
       .tower-btn { padding: 8px 16px; cursor: pointer; background: #333; color: white; border: 1px solid #555; }
       .tower-btn.active { background: #3498db; border-color: #2980b9; }
+      .upgrade-btn { padding: 4px 8px; cursor: pointer; background: #2ecc71; color: white; border: none; font-size: 12px; margin-right: 5px; }
     </style>
     <div style="display: flex; flex-direction: column; align-items: center; background: #111; color: white; min-height: 100vh;">
       <div style="padding: 10px; width: 800px; display: flex; justify-content: space-between; align-items: center;">
@@ -70,10 +71,23 @@ function renderGameRoom() {
         <span>Bank: $<span id="bankDisplay" style="color:#f1c40f;">0</span></span>
         <span>Base: <span id="healthDisplay" style="color:#e74c3c;">0</span></span>
       </div>
-      <div style="margin-bottom: 10px; display: flex; gap: 10px;">
-        <button id="btn-SCIENTIST" class="tower-btn active" onclick="selectTowerType('SCIENTIST')">Scientist ($100)</button>
-        <button id="btn-REINFORCEMENT" class="tower-btn" onclick="selectTowerType('REINFORCEMENT')">Blockade ($50)</button>
+
+      <div style="width: 800px; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+        <div style="display: flex; gap: 10px;">
+          <button id="btn-SCIENTIST" class="tower-btn active" onclick="selectTowerType('SCIENTIST')">Scientist ($30)</button>
+          <button id="btn-REINFORCEMENT" class="tower-btn" onclick="selectTowerType('REINFORCEMENT')">Blockade ($50)</button>
+          <button id="btn-SELECT" class="tower-btn" onclick="selectTowerType('SELECT')">Select (Upgrade)</button>
+        </div>
+
+        <div id="upgradePanel" style="display: none; background: #222; padding: 10px; border: 1px solid #555;">
+          <span style="font-size: 14px; margin-right: 10px;">Upgrades ($40 ea):</span>
+          <button class="upgrade-btn" onclick="upgradeTower('damage')">+Dmg</button>
+          <button class="upgrade-btn" onclick="upgradeTower('speed')">+Speed</button>
+          <button class="upgrade-btn" onclick="upgradeTower('range')">+Range</button>
+          <button class="upgrade-btn" onclick="upgradeTower('armor')">+Armor</button>
+        </div>
       </div>
+
       <canvas id="gameCanvas" width="800" height="600" style="border: 1px solid #444; background: #222; cursor: crosshair;"></canvas>
     </div>
   `;

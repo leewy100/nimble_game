@@ -19,13 +19,16 @@ export class GameRoom {
 
   private spawnQueue: EnemyType[] = [];
   private spawnTimer: number = 0;
-  private timeBetweenWaves: number = 600; // 10 seconds at 60 fps
+  private timeBetweenWaves: number = 600;
   private waveTimer: number = 600;
+
+  public portalX = 10;
+  public portalY = 7;
 
   constructor(id: string) {
     this.id = id;
     this.players = new Set();
-    this.bank = 500;
+    this.bank = 120;
     this.baseHealth = 50;
     this.grid = new Grid(20, 15);
   }
@@ -45,10 +48,11 @@ export class GameRoom {
   placeTower(playerId: string, gridX: number, gridY: number, type: TowerType): boolean {
     if (this.isGameOver) return false;
 
-    const cost = type === TowerType.SCIENTIST ? 100 : 50;
+    if (gridX === this.portalX && gridY === this.portalY) return false;
+
+    const cost = type === TowerType.SCIENTIST ? 30 : 50;
     if (this.bank < cost) return false;
 
-    // We allow placing a tower even if it blocks, but logic will make enemies attack it.
     if (this.grid.placeTower(gridX, gridY)) {
       this.bank -= cost;
 
@@ -58,32 +62,66 @@ export class GameRoom {
         type,
         x: gridX,
         y: gridY,
-        health: type === TowerType.REINFORCEMENT ? 500 : 100,
-        maxHealth: type === TowerType.REINFORCEMENT ? 500 : 100,
-        damage: type === TowerType.SCIENTIST ? 10 : 0,
-        range: type === TowerType.SCIENTIST ? 3 : 0,
-        fireRate: 30, // fire every 0.5 sec
+        health: type === TowerType.REINFORCEMENT ? 500 : 50,
+        maxHealth: type === TowerType.REINFORCEMENT ? 500 : 50,
+        damage: type === TowerType.SCIENTIST ? 5 : 0,
+        range: type === TowerType.SCIENTIST ? 2.5 : 0,
+        fireRate: 45,
         lastFired: 0
       };
       this.towers.set(towerId, tower);
 
-      // Re-calculate paths for all active enemies
       this.recalculateEnemyPaths();
       return true;
     }
     return false;
   }
 
+  upgradeTower(towerId: string, stat: 'damage' | 'speed' | 'range' | 'armor'): boolean {
+    if (this.isGameOver) return false;
+
+    const tower = this.towers.get(towerId);
+    if (!tower) return false;
+
+    // Upgrades cost $40 each for simplicity right now
+    const cost = 40;
+    if (this.bank < cost) return false;
+
+    this.bank -= cost;
+
+    switch (stat) {
+      case 'damage':
+        tower.damage += 5;
+        break;
+      case 'speed':
+        tower.fireRate = Math.max(10, tower.fireRate - 10);
+        break;
+      case 'range':
+        tower.range += 1;
+        break;
+      case 'armor':
+        tower.maxHealth += 100;
+        tower.health += 100;
+        break;
+    }
+    return true;
+  }
+
   recalculateEnemyPaths() {
     for (const enemy of this.enemies) {
+      if (enemy.type === EnemyType.BRUTE && this.towers.size > 0) {
+        this.assignTargetTower(enemy);
+        continue;
+      }
+
       const gridX = Math.floor(enemy.x);
       const gridY = Math.floor(enemy.y);
-      const newPath = this.grid.findPath(gridX, gridY);
+      const newPath = this.grid.findPath(gridX, gridY, this.portalX, this.portalY);
+
       if (newPath) {
         enemy.path = newPath;
         enemy.targetTowerId = null;
       } else {
-        // Path is blocked! Find nearest tower and target it.
         enemy.path = [];
         this.assignTargetTower(enemy);
       }
@@ -103,6 +141,11 @@ export class GameRoom {
     }
 
     enemy.targetTowerId = closestTowerId;
+    if (closestTowerId) {
+      const tower = this.towers.get(closestTowerId)!;
+      const path = this.grid.findPath(Math.floor(enemy.x), Math.floor(enemy.y), tower.x, tower.y);
+      enemy.path = path || [];
+    }
   }
 
   update() {
@@ -128,7 +171,7 @@ export class GameRoom {
       if (this.spawnTimer <= 0) {
         const type = this.spawnQueue.shift()!;
         this.spawnEnemy(type);
-        this.spawnTimer = 60; // 1 second between spawns
+        this.spawnTimer = 60;
       } else {
         this.spawnTimer--;
       }
@@ -139,7 +182,6 @@ export class GameRoom {
     this.wave++;
     this.waveTimer = this.timeBetweenWaves;
 
-    // Simple wave generation
     const count = 5 + this.wave * 2;
     for (let i = 0; i < count; i++) {
       const rand = Math.random();
@@ -154,26 +196,47 @@ export class GameRoom {
   }
 
   spawnEnemy(type: EnemyType) {
-    const startX = Math.floor(Math.random() * this.grid.width);
-    const startY = 0;
+    let startX = 0;
+    let startY = 0;
 
-    let path = this.grid.findPath(startX, startY);
+    const side = (this.wave <= 4) ? this.wave : Math.floor(Math.random() * 4) + 1;
+
+    if (side === 1) { // Top
+      startX = Math.floor(Math.random() * this.grid.width);
+      startY = 0;
+    } else if (side === 2) { // Right
+      startX = this.grid.width - 1;
+      startY = Math.floor(Math.random() * this.grid.height);
+    } else if (side === 3) { // Bottom
+      startX = Math.floor(Math.random() * this.grid.width);
+      startY = this.grid.height - 1;
+    } else if (side === 4) { // Left
+      startX = 0;
+      startY = Math.floor(Math.random() * this.grid.height);
+    }
 
     const enemy: Enemy = {
       id: randomUUID(),
       type,
-      x: startX + 0.5, // Center of cell
+      x: startX + 0.5,
       y: startY + 0.5,
-      health: type === EnemyType.BRUTE ? 100 : (type === EnemyType.BLOB ? 30 : 15),
-      maxHealth: type === EnemyType.BRUTE ? 100 : (type === EnemyType.BLOB ? 30 : 15),
+      health: type === EnemyType.BRUTE ? 150 : (type === EnemyType.BLOB ? 30 : 15),
+      maxHealth: type === EnemyType.BRUTE ? 150 : (type === EnemyType.BLOB ? 30 : 15),
       speed: type === EnemyType.RUNNER ? 0.05 : (type === EnemyType.BRUTE ? 0.015 : 0.025),
-      reward: type === EnemyType.BRUTE ? 20 : 10,
-      path: path || [],
+      reward: type === EnemyType.BRUTE ? 30 : 10,
+      path: [],
       targetTowerId: null
     };
 
-    if (!path) {
+    if (type === EnemyType.BRUTE && this.towers.size > 0) {
       this.assignTargetTower(enemy);
+    } else {
+      const path = this.grid.findPath(startX, startY, this.portalX, this.portalY);
+      if (path) {
+        enemy.path = path;
+      } else {
+        this.assignTargetTower(enemy);
+      }
     }
 
     this.enemies.push(enemy);
@@ -184,7 +247,6 @@ export class GameRoom {
       const enemy = this.enemies[i];
 
       if (enemy.targetTowerId) {
-        // Attack tower logic
         const targetTower = this.towers.get(enemy.targetTowerId);
         if (targetTower) {
           const dx = (targetTower.x + 0.5) - enemy.x;
@@ -192,13 +254,28 @@ export class GameRoom {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist > 0.8) {
-            // Move towards tower
-            enemy.x += (dx / dist) * enemy.speed;
-            enemy.y += (dy / dist) * enemy.speed;
+            if (enemy.path && enemy.path.length > 0) {
+                const nextTarget = enemy.path[0];
+                const targetX = nextTarget.x + 0.5;
+                const targetY = nextTarget.y + 0.5;
+                const pdx = targetX - enemy.x;
+                const pdy = targetY - enemy.y;
+                const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+                if (pdist <= enemy.speed) {
+                    enemy.x = targetX;
+                    enemy.y = targetY;
+                    enemy.path.shift();
+                } else {
+                    enemy.x += (pdx / pdist) * enemy.speed;
+                    enemy.y += (pdy / pdist) * enemy.speed;
+                }
+            } else {
+               enemy.x += (dx / dist) * enemy.speed;
+               enemy.y += (dy / dist) * enemy.speed;
+            }
           } else {
-            // Attack tower
-            if (this.tickCount % 60 === 0) { // attack 1/sec
-               targetTower.health -= (enemy.type === EnemyType.BRUTE ? 20 : 5);
+            if (this.tickCount % 60 === 0) {
+               targetTower.health -= (enemy.type === EnemyType.BRUTE ? 25 : 5);
                if (targetTower.health <= 0) {
                  this.towers.delete(enemy.targetTowerId);
                  this.grid.removeTower(targetTower.x, targetTower.y);
@@ -207,10 +284,9 @@ export class GameRoom {
             }
           }
         } else {
-          this.recalculateEnemyPaths(); // Target dead, recalculate
+          this.recalculateEnemyPaths();
         }
       } else if (enemy.path && enemy.path.length > 0) {
-        // Follow path
         const nextTarget = enemy.path[0];
         const targetX = nextTarget.x + 0.5;
         const targetY = nextTarget.y + 0.5;
@@ -227,10 +303,18 @@ export class GameRoom {
           enemy.x += (dx / dist) * enemy.speed;
           enemy.y += (dy / dist) * enemy.speed;
         }
+      } else {
+         const dx = (this.portalX + 0.5) - enemy.x;
+         const dy = (this.portalY + 0.5) - enemy.y;
+         const dist = Math.sqrt(dx * dx + dy * dy);
+         if (dist > enemy.speed) {
+             enemy.x += (dx / dist) * enemy.speed;
+             enemy.y += (dy / dist) * enemy.speed;
+         }
       }
 
-      // Check if reached bottom
-      if (enemy.y >= this.grid.height - 0.5) {
+      const distToPortal = Math.sqrt(Math.pow((this.portalX + 0.5) - enemy.x, 2) + Math.pow((this.portalY + 0.5) - enemy.y, 2));
+      if (distToPortal < 0.5 && !enemy.targetTowerId) {
         this.baseHealth--;
         if (this.baseHealth <= 0) {
           this.isGameOver = true;
@@ -245,7 +329,6 @@ export class GameRoom {
       if (tower.type !== TowerType.SCIENTIST) continue;
 
       if (this.tickCount - tower.lastFired >= tower.fireRate) {
-        // Find target
         let target: Enemy | null = null;
         let minDist = tower.range;
 
@@ -287,7 +370,6 @@ export class GameRoom {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist <= proj.speed) {
-        // Hit
         targetEnemy.health -= proj.damage;
         if (targetEnemy.health <= 0) {
           this.bank += targetEnemy.reward;
@@ -298,7 +380,6 @@ export class GameRoom {
         }
         this.projectiles.splice(i, 1);
       } else {
-        // Move
         proj.x += (dx / dist) * proj.speed;
         proj.y += (dy / dist) * proj.speed;
       }
@@ -315,7 +396,9 @@ export class GameRoom {
       isGameOver: this.isGameOver,
       enemies: this.enemies,
       towers: Array.from(this.towers.values()),
-      projectiles: this.projectiles
+      projectiles: this.projectiles,
+      portalX: this.portalX,
+      portalY: this.portalY
     };
   }
 }

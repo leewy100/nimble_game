@@ -67,6 +67,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('upgrade_tower', (data: { towerId: string, stat: 'damage'|'speed'|'range'|'armor' }) => {
+    if (currentRoomId) {
+      const room = roomManager.getRoom(currentRoomId);
+      if (room) {
+        room.upgradeTower(data.towerId, data.stat);
+      }
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     if (currentRoomId) {
@@ -78,16 +87,15 @@ io.on('connection', (socket) => {
   });
 });
 
-// Game Loop
 setInterval(() => {
-  const rooms = roomManager.getRoomsMap() as Map<string, any>;
+  const rooms = roomManager.getRoomsMap();
   for (const [roomId, room] of rooms.entries()) {
-    if (room.isEmpty()) continue; // Pause empty rooms
+    if (room.isEmpty()) continue;
 
     room.update();
     io.to(roomId).emit('game_state', room.getState());
   }
-}, 1000 / 60); // 60 FPS
+}, 1000 / 60);
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {

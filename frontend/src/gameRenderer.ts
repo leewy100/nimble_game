@@ -6,10 +6,18 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
   const ctx = canvas.getContext('2d')!;
   let gameState: any = null;
   let selectedTowerType: string = 'SCIENTIST'; // default
+  let selectedTowerId: string | null = null;
+  let animationTime = 0;
 
   socket.on('game_state', (state) => {
     gameState = state;
     updateUI(state);
+
+    // Check if currently selected tower died
+    if (selectedTowerId && !gameState.towers.find((t: any) => t.id === selectedTowerId)) {
+       selectedTowerId = null;
+       document.getElementById('upgradePanel')!.style.display = 'none';
+    }
   });
 
   canvas.addEventListener('click', (e) => {
@@ -22,14 +30,35 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
     const gridX = Math.floor(x / TILE_SIZE);
     const gridY = Math.floor(y / TILE_SIZE);
 
-    socket.emit('place_tower', { x: gridX, y: gridY, type: selectedTowerType });
+    if (selectedTowerType === 'SELECT') {
+      const clickedTower = gameState.towers.find((t: any) => t.x === gridX && t.y === gridY);
+      if (clickedTower) {
+        selectedTowerId = clickedTower.id;
+        document.getElementById('upgradePanel')!.style.display = 'block';
+      } else {
+        selectedTowerId = null;
+        document.getElementById('upgradePanel')!.style.display = 'none';
+      }
+    } else {
+      socket.emit('place_tower', { x: gridX, y: gridY, type: selectedTowerType });
+    }
   });
 
-  // Expose function to change tower type from UI buttons
   (window as any).selectTowerType = (type: string) => {
     selectedTowerType = type;
     document.querySelectorAll('.tower-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`btn-${type}`)?.classList.add('active');
+
+    if (type !== 'SELECT') {
+       selectedTowerId = null;
+       document.getElementById('upgradePanel')!.style.display = 'none';
+    }
+  };
+
+  (window as any).upgradeTower = (stat: string) => {
+    if (selectedTowerId) {
+       socket.emit('upgrade_tower', { towerId: selectedTowerId, stat });
+    }
   };
 
   function updateUI(state: any) {
@@ -43,6 +72,7 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
   }
 
   function render() {
+    animationTime += 0.05;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!gameState) {
@@ -60,16 +90,29 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
     }
 
-    // Draw Base (Bottom row visually highlighted)
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
-    ctx.fillRect(0, canvas.height - TILE_SIZE, canvas.width, TILE_SIZE);
+    // Draw Portal (Center 1x1 tile)
+    const px = gameState.portalX * TILE_SIZE;
+    const py = gameState.portalY * TILE_SIZE;
+    const gradient = ctx.createRadialGradient(
+      px + TILE_SIZE/2, py + TILE_SIZE/2, 5,
+      px + TILE_SIZE/2, py + TILE_SIZE/2, TILE_SIZE/2 + Math.sin(animationTime)*5
+    );
+    gradient.addColorStop(0, '#9b59b6');
+    gradient.addColorStop(1, 'rgba(142, 68, 173, 0.2)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
     // Draw Towers
     for (const tower of gameState.towers) {
       ctx.fillStyle = tower.type === 'SCIENTIST' ? '#3498db' : '#95a5a6';
       ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
 
-      // Health bar for tower
+      if (selectedTowerId === tower.id) {
+         ctx.strokeStyle = '#f1c40f';
+         ctx.lineWidth = 2;
+         ctx.strokeRect(tower.x * TILE_SIZE, tower.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      }
+
       const hpPercent = tower.health / tower.maxHealth;
       ctx.fillStyle = 'red';
       ctx.fillRect(tower.x * TILE_SIZE + 2, tower.y * TILE_SIZE + TILE_SIZE - 6, TILE_SIZE - 4, 4);
@@ -84,21 +127,20 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       if (enemy.type === 'RUNNER') { color = '#f1c40f'; radius = TILE_SIZE / 4; }
       if (enemy.type === 'BRUTE') { color = '#8e44ad'; radius = TILE_SIZE / 2 - 2; }
 
-      const px = enemy.x * TILE_SIZE;
-      const py = enemy.y * TILE_SIZE;
+      const epx = enemy.x * TILE_SIZE;
+      const epy = enemy.y * TILE_SIZE;
 
       ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.arc(epx, epy, radius, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.closePath();
 
-      // Health bar
       const hpPercent = enemy.health / enemy.maxHealth;
       ctx.fillStyle = 'red';
-      ctx.fillRect(px - radius, py - radius - 6, radius * 2, 4);
+      ctx.fillRect(epx - radius, epy - radius - 6, radius * 2, 4);
       ctx.fillStyle = 'green';
-      ctx.fillRect(px - radius, py - radius - 6, (radius * 2) * hpPercent, 4);
+      ctx.fillRect(epx - radius, epy - radius - 6, (radius * 2) * hpPercent, 4);
     }
 
     // Draw Projectiles
@@ -110,7 +152,6 @@ export function initGameRenderer(canvas: HTMLCanvasElement, socket: Socket) {
       ctx.closePath();
     }
 
-    // Draw Game Over
     if (gameState.isGameOver) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
